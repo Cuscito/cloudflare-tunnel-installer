@@ -62,7 +62,7 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
-```bash
+```
 ## 使用示例
 
 # 基本安装（替换为您的实际 Token）
