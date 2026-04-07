@@ -4,15 +4,15 @@
 # Cloudflare Tunnel 一键安装脚本
 # 
 # 功能：
-#   1. 自动检测并卸载旧服务
+#   1. 自动检测并安装 cloudflared
 #   2. 智能连接：IPv6 优先，失败自动切换 IPv4
 #   3. 配置 systemd 服务，开机自启
-#   4. 实时显示安装进度和运行状态
+#   4. 实时显示安装进度
 #
 # 使用方法：
-#   1. 修改下面的 CLOUDFLARE_TOKEN 为您的 Token
-#   2. 保存为 install.sh
-#   3. sudo bash install.sh
+#   curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
+#
+# GitHub: https://github.com/Cuscito/cloudflare-tunnel-installer
 ##############################################################################
 
 set -e
@@ -23,7 +23,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 # 版本信息
@@ -32,55 +31,37 @@ VERSION="2.0.0"
 # 日志文件
 LOG_FILE="/var/log/cloudflared-install.log"
 
-# ==================== 请修改为您的 Token ====================
-CLOUDFLARE_TOKEN="eyJhIjoiNDMzMGVmMDAwYzQ0NWZjMDg2ZTg2ODUyZjRkNzJlMDAiLCJ0IjoiNWZhNTk4Y2EtNjMyMy00YzE3LThmNGMtOGNkYWNhNWVjMDI4IiwicyI6IlpUSTBZamhpTW1JdE1qVmhZUzAwWVRaa0xUaGlOelV0WWpjMk5HTTVNemcxTXpGaiJ9"
-# ============================================================
-
 # 日志函数
-log() {
-    echo -e "$1" | tee -a "$LOG_FILE"
-}
-
 log_info() {
-    log "${GREEN}[INFO]${NC} $1"
-}
-
-log_warn() {
-    log "${YELLOW}[WARN]${NC} $1"
-}
-
-log_error() {
-    log "${RED}[ERROR]${NC} $1"
+    echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$LOG_FILE"
 }
 
 log_step() {
-    log "${BLUE}[STEP]${NC} $1"
+    echo -e "${BLUE}[STEP]${NC} $1" | tee -a "$LOG_FILE"
 }
 
 log_success() {
-    log "${GREEN}[✓]${NC} $1"
+    echo -e "${GREEN}[✓]${NC} $1" | tee -a "$LOG_FILE"
 }
 
-# 显示进度条
-show_progress() {
-    local msg="$1"
-    echo -ne "${CYAN}  ${msg}${NC} "
-    for i in {1..3}; do
-        echo -ne "."
-        sleep 0.3
-    done
-    echo -e " ${GREEN}完成${NC}"
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE"
 }
 
 # 显示标题
 show_title() {
     clear
     echo ""
-    log "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-    log "${MAGENTA}║                                                              ║${NC}"
-    log "${MAGENTA}║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║${NC}"
-    log "${MAGENTA}║                                                              ║${NC}"
-    log "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                                                              ║"
+    echo "║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║"
+    echo "║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║"
+    echo "║                                                              ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
 }
 
@@ -92,16 +73,6 @@ check_root() {
     fi
 }
 
-# 检查 Token
-check_token() {
-    if [[ -z "$CLOUDFLARE_TOKEN" ]]; then
-        log_error "请先设置 Cloudflare Token"
-        echo ""
-        log_info "编辑脚本，修改 CLOUDFLARE_TOKEN 变量"
-        exit 1
-    fi
-}
-
 # 检测系统类型
 detect_os() {
     log_step "检测系统类型..."
@@ -109,7 +80,6 @@ detect_os() {
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$ID
-        VER=$VERSION_ID
         OS_NAME=$NAME
         
         case $OS in
@@ -117,7 +87,7 @@ detect_os() {
                 PKG_MANAGER="apt"
                 PKG_UPDATE="apt-get update -qq"
                 PKG_INSTALL="apt-get install -y"
-                log_info "系统: $OS_NAME $VER (Debian系列)"
+                log_info "系统: $OS_NAME (Debian系列)"
                 ;;
             centos|rhel|rocky|almalinux)
                 PKG_MANAGER="yum"
@@ -127,13 +97,13 @@ detect_os() {
                     PKG_MANAGER="dnf"
                     PKG_INSTALL="dnf install -y"
                 fi
-                log_info "系统: $OS_NAME $VER (RedHat系列)"
+                log_info "系统: $OS_NAME (RedHat系列)"
                 ;;
             fedora)
                 PKG_MANAGER="dnf"
                 PKG_UPDATE="dnf update -y -q"
                 PKG_INSTALL="dnf install -y"
-                log_info "系统: $OS_NAME $VER (Fedora系列)"
+                log_info "系统: $OS_NAME (Fedora系列)"
                 ;;
             *)
                 log_warn "未识别的系统: $OS，将尝试通用安装"
@@ -146,67 +116,14 @@ detect_os() {
     fi
 }
 
-# 检测并卸载旧服务
-check_and_uninstall() {
-    log_step "检测并清理旧服务..."
-    echo ""
-    
-    # 检查是否已安装
-    if command -v cloudflared &> /dev/null; then
-        log_warn "检测到已安装的 cloudflared: $(cloudflared --version)"
-        
-        # 停止服务
-        if systemctl is-active --quiet cloudflared.service 2>/dev/null; then
-            echo -n "  停止运行中的服务... "
-            sudo systemctl stop cloudflared.service 2>/dev/null && echo -e "${GREEN}完成${NC}"
-        fi
-        
-        # 禁用服务
-        if systemctl is-enabled --quiet cloudflared.service 2>/dev/null; then
-            echo -n "  禁用开机自启... "
-            sudo systemctl disable cloudflared.service 2>/dev/null && echo -e "${GREEN}完成${NC}"
-        fi
-        
-        # 卸载服务
-        echo -n "  卸载 cloudflared 服务... "
-        sudo cloudflared service uninstall 2>/dev/null && echo -e "${GREEN}完成${NC}"
-        
-        # 清理文件
-        echo -n "  清理配置文件... "
-        sudo rm -f /etc/systemd/system/cloudflared.service
-        sudo rm -f /etc/systemd/system/cloudflared.service.d/override.conf
-        sudo rm -f /usr/local/bin/cloudflared-smart.sh
-        sudo rm -f /var/log/cloudflared.log
-        echo -e "${GREEN}完成${NC}"
-        
-        echo ""
-        log_warn "是否重新安装 cloudflared? (y/N): "
-        read -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo -n "  删除旧版本... "
-            sudo rm -f $(which cloudflared)
-            echo -e "${GREEN}完成${NC}"
-            NEED_REINSTALL=true
-        else
-            NEED_REINSTALL=false
-        fi
-    else
-        log_info "未检测到现有安装，将进行全新安装"
-        NEED_REINSTALL=true
-    fi
-    
-    log_success "旧服务清理完成"
-}
-
 # 安装 cloudflared
 install_cloudflared() {
-    if [[ "$NEED_REINSTALL" == "false" ]] && command -v cloudflared &> /dev/null; then
-        log_info "使用现有 cloudflared: $(cloudflared --version)"
+    log_step "安装 cloudflared..."
+    
+    if command -v cloudflared &> /dev/null; then
+        log_info "cloudflared 已安装: $(cloudflared --version)"
         return
     fi
-    
-    log_step "安装 cloudflared..."
     
     case $PKG_MANAGER in
         apt)
@@ -274,7 +191,7 @@ create_smart_script() {
     sudo tee /usr/local/bin/cloudflared-smart.sh > /dev/null << SCRIPT
 #!/bin/bash
 
-TOKEN="${CLOUDFLARE_TOKEN}"
+TOKEN="${TOKEN}"
 LOG_FILE="/var/log/cloudflared.log"
 
 log() {
@@ -290,7 +207,7 @@ check_ipv6() {
         return 1
     fi
     
-    if ! ping -6 -c 1 -W 3 2606:4700::1111 >/dev/null 2>&1; then
+    if ! ping6 -c 1 -W 3 2606:4700::1111 >/dev/null 2>&1; then
         log "IPv6 网络不可达"
         return 1
     fi
@@ -387,30 +304,6 @@ check_service() {
     fi
 }
 
-# 显示完成信息
-show_complete() {
-    echo ""
-    log "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    log "${GREEN}║                    安装完成！                                ║${NC}"
-    log "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    log_info "Cloudflare Tunnel 已安装并启动"
-    log_info "智能连接: IPv6 优先，失败自动切换 IPv4"
-    log_info "开机自启: 已启用"
-    echo ""
-    log "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    log "${GREEN}常用管理命令:${NC}"
-    log "${YELLOW}  查看状态:${NC} sudo systemctl status cloudflared"
-    log "${YELLOW}  查看日志:${NC} sudo journalctl -u cloudflared -f"
-    log "${YELLOW}  重启服务:${NC} sudo systemctl restart cloudflared"
-    log "${YELLOW}  停止服务:${NC} sudo systemctl stop cloudflared"
-    log "${YELLOW}  启动服务:${NC} sudo systemctl start cloudflared"
-    log "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    log_info "安装日志: $LOG_FILE"
-    log_info "运行日志: /var/log/cloudflared.log"
-}
-
 # 卸载函数
 uninstall() {
     log_step "卸载 Cloudflare Tunnel..."
@@ -441,24 +334,51 @@ uninstall() {
     fi
 }
 
+# 显示完成信息
+show_complete() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                    安装完成！                                ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    log_info "Cloudflare Tunnel 已安装并启动"
+    log_info "智能连接: IPv6 优先，失败自动切换 IPv4"
+    log_info "开机自启: 已启用"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "常用管理命令:"
+    echo "  查看状态: sudo systemctl status cloudflared"
+    echo "  查看日志: sudo journalctl -u cloudflared -f"
+    echo "  重启服务: sudo systemctl restart cloudflared"
+    echo "  停止服务: sudo systemctl stop cloudflared"
+    echo "  启动服务: sudo systemctl start cloudflared"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    log_info "安装日志: $LOG_FILE"
+    log_info "运行日志: /var/log/cloudflared.log"
+}
+
 # 帮助信息
 show_help() {
     cat << EOF
 Cloudflare Tunnel 安装脚本 v${VERSION}
 
-用法: sudo $0 [选项]
+用法: 
+    curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
 
 选项:
     --uninstall            卸载服务
     -h, --help             显示帮助
 
 示例:
-    sudo $0                # 安装服务
-    sudo $0 --uninstall    # 卸载服务
+    # 安装服务
+    curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "your-token-here"
+    
+    # 卸载服务
+    sudo bash install-cloudflared.sh --uninstall
 
 说明:
-    安装前请在脚本中设置 CLOUDFLARE_TOKEN 变量
-    脚本会自动检测并卸载旧服务
+    脚本会自动检测系统类型并安装 cloudflared
     安装后自动启动并设置开机自启
     智能连接: IPv6 优先，失败自动切换 IPv4
 EOF
@@ -479,11 +399,23 @@ main() {
             ;;
     esac
     
+    # 获取 Token（支持两种方式）
+    if [[ -n "$1" ]]; then
+        TOKEN="$1"
+    elif [[ -n "$2" ]]; then
+        TOKEN="$2"
+    fi
+    
+    if [[ -z "$TOKEN" ]]; then
+        log_error "请提供 Cloudflare Token"
+        echo ""
+        echo "用法: curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- \"YOUR_TOKEN\""
+        exit 1
+    fi
+    
     check_root
     show_title
-    check_token
     detect_os
-    check_and_uninstall
     install_cloudflared
     create_smart_script
     create_systemd_service
