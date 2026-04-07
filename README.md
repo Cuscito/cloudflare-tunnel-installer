@@ -103,3 +103,27 @@ sudo bash install-cloudflared.sh --uninstall
 # 连接成功？ ──否──→ 使用 IPv4 连接
 #   ↓ 是
 # 使用 IPv6 连接
+文件结构
+安装后会在系统中创建以下文件：
+
+文件路径	说明
+/usr/local/bin/cloudflared-smart.sh	智能连接脚本
+/etc/systemd/system/cloudflared.service	systemd 服务文件
+/var/log/cloudflared.log	运行日志
+/var/log/cloudflared-install.log	安装日志
+## 🔧 管理命令
+服务管理
+# 查看服务状态
+sudo systemctl status cloudflared
+
+# 启动服务
+sudo systemctl start cloudflared
+
+# 停止服务
+sudo systemctl stop cloudflared
+
+# 重启服务
+sudo systemctl restart cloudflared
+
+# 查看是否开机自启
+sudo systemctl is-enabled cloudflared
