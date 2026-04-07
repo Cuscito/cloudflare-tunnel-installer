@@ -119,7 +119,7 @@ flowchart TD
     style USE_IPV4 fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
     style RUNNING fill:#4CAF50,stroke:#333,stroke-width:3px,color:#fff
 ```
-文件结构
+## 文件结构
 安装后会在系统中创建以下文件：
 
 文件路径	说明
@@ -153,3 +153,103 @@ sudo systemctl restart cloudflared
 ```bash
 sudo systemctl is-enabled cloudflared
 ```
+# 日志查看
+# 查看实时日志
+```bash
+sudo journalctl -u cloudflared -f
+```
+
+# 查看最近 50 行日志
+```bash
+sudo journalctl -u cloudflared -n 50
+```
+
+# 查看智能切换日志
+```bash
+sudo tail -f /var/log/cloudflared.log
+```
+
+# 查看安装日志
+```bash
+sudo cat /var/log/cloudflared-install.log
+```
+# 连接测试
+# 查看当前使用的协议 (IPv6/IPv4)
+```bash
+sudo journalctl -u cloudflared -n 20 | grep -E "IPv[46]"
+```
+
+# 测试 IPv6 连通性
+```bash
+ping6 -c 4 2606:4700::1111
+```
+
+# 手动测试连接
+```bash
+sudo /usr/local/bin/cloudflared-smart.sh "your-token"
+```
+## 📊 运行效果
+╔══════════════════════════════════════════════════════════════╗
+║     Cloudflare Tunnel 一键安装脚本 v2.4.0                    ║
+║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║
+╚══════════════════════════════════════════════════════════════╝
+
+[STEP] 检测系统类型...
+[INFO] 系统: Ubuntu (Debian系列)
+
+[STEP] 清理旧服务...
+[✓] 清理完成
+
+[STEP] 安装 cloudflared...
+  添加 GPG 密钥... ✓
+  添加软件源... ✓
+  更新软件包列表... ✓
+  安装 cloudflared... ✓
+[✓] cloudflared 安装完成: cloudflared version 2026.3.0
+
+[STEP] 创建智能连接脚本...
+[✓] 智能连接脚本创建完成
+
+[STEP] 创建 systemd 服务...
+[✓] systemd 服务创建完成
+
+[STEP] 启动服务...
+  重新加载 systemd... ✓
+  启用开机自启... ✓
+  启动 cloudflared... ✓
+
+[STEP] 测试连接状态...
+  ✓ Tunnel 已成功注册
+
+[STEP] 检查服务状态...
+
+[✓] 服务运行中
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 当前连接状态:
+  ✓ 当前使用: IPv6
+  📍 边缘节点: connIndex=0 ip=2606:4700:a0::5
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+● cloudflared.service - Cloudflare Tunnel
+     Loaded: loaded (/etc/systemd/system/cloudflared.service; enabled)
+     Active: active (running) since Tue 2026-04-07 17:25:15 UTC
+   Main PID: 15782 (cloudflared)
+      Tasks: 10 (limit: 4600)
+     Memory: 15.5M
+
+╔══════════════════════════════════════════════════════════════╗
+║                    安装完成！                                ║
+╚══════════════════════════════════════════════════════════════╝
+
+[INFO] Cloudflare Tunnel 已安装并启动
+[INFO] 开机自启: 已启用
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 常用管理命令:
+  查看状态: sudo systemctl status cloudflared
+  查看日志: sudo journalctl -u cloudflared -f
+  查看连接: sudo tail -f /var/log/cloudflared.log
+  重启服务: sudo systemctl restart cloudflared
+  停止服务: sudo systemctl stop cloudflared
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
