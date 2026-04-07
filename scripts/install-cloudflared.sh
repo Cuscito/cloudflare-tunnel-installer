@@ -7,6 +7,7 @@
 #   1. 自动检测并安装 cloudflared
 #   2. 智能连接：IPv6 优先，失败自动切换 IPv4
 #   3. 配置 systemd 服务，开机自启
+#   4. 显示详细安装进度和连接状态
 #
 # 使用方法：
 #   curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
@@ -21,22 +22,39 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 VERSION="2.3.0"
 
+# 进度条函数
+show_progress() {
+    local msg="$1"
+    echo -ne "${CYAN}  ${msg}${NC} "
+    for i in {1..3}; do
+        echo -ne "."
+        sleep 0.3
+    done
+    echo -e " ${GREEN}✓${NC}"
+}
+
+# 日志函数
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 show_title() {
     clear
     echo ""
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║"
-    echo "║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║                                                              ║${NC}"
+    echo -e "${MAGENTA}║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║${NC}"
+    echo -e "${MAGENTA}║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║${NC}"
+    echo -e "${MAGENTA}║                                                              ║${NC}"
+    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -69,32 +87,31 @@ detect_os() {
     fi
 }
 
-# 清理旧服务
 clean_old_service() {
     log_step "清理旧服务..."
     
     if systemctl is-active --quiet cloudflared.service 2>/dev/null; then
-        systemctl stop cloudflared.service
-        echo "  已停止服务"
+        echo -n "  停止运行中的服务... "
+        systemctl stop cloudflared.service && echo -e "${GREEN}完成${NC}"
     fi
     
     if systemctl is-enabled --quiet cloudflared.service 2>/dev/null; then
-        systemctl disable cloudflared.service
-        echo "  已禁用服务"
+        echo -n "  禁用开机自启... "
+        systemctl disable cloudflared.service && echo -e "${GREEN}完成${NC}"
     fi
     
+    echo -n "  删除配置文件... "
     rm -f /etc/systemd/system/cloudflared.service
     rm -f /usr/local/bin/cloudflared-smart.sh
     systemctl daemon-reload
+    echo -e "${GREEN}完成${NC}"
     
     log_success "清理完成"
 }
 
-# 安装 cloudflared
 install_cloudflared() {
     log_step "安装 cloudflared..."
     
-    # 检查是否已安装
     if command -v cloudflared &> /dev/null; then
         log_info "cloudflared 已安装: $(cloudflared --version)"
         return
@@ -102,24 +119,20 @@ install_cloudflared() {
     
     case $PKG_MANAGER in
         apt)
-            echo -n "  添加 GPG 密钥... "
+            show_progress "添加 GPG 密钥"
             curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | gpg --dearmor | tee /usr/share/keyrings/cloudflare-archive-keyring.gpg > /dev/null
-            echo -e "${GREEN}完成${NC}"
             
-            echo -n "  添加软件源... "
+            show_progress "添加软件源"
             echo 'deb [signed-by=/usr/share/keyrings/cloudflare-archive-keyring.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list > /dev/null
-            echo -e "${GREEN}完成${NC}"
             
-            echo -n "  更新软件包列表... "
+            show_progress "更新软件包列表"
             apt-get update -qq
-            echo -e "${GREEN}完成${NC}"
             
-            echo -n "  安装 cloudflared... "
+            show_progress "安装 cloudflared"
             apt-get install -y cloudflared > /dev/null 2>&1
-            echo -e "${GREEN}完成${NC}"
             ;;
         yum|dnf)
-            echo -n "  添加仓库... "
+            show_progress "添加仓库"
             tee /etc/yum.repos.d/cloudflared.repo > /dev/null << REPO
 [cloudflared]
 name=Cloudflare cloudflared
@@ -128,17 +141,14 @@ enabled=1
 gpgcheck=1
 gpgkey=https://pkg.cloudflare.com/cloudflare-public-v2.gpg
 REPO
-            echo -e "${GREEN}完成${NC}"
             
-            echo -n "  安装 cloudflared... "
+            show_progress "安装 cloudflared"
             $PKG_INSTALL cloudflared > /dev/null 2>&1
-            echo -e "${GREEN}完成${NC}"
             ;;
         *)
-            echo -n "  下载二进制文件... "
+            show_progress "下载二进制文件"
             curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
             chmod +x /usr/local/bin/cloudflared
-            echo -e "${GREEN}完成${NC}"
             ;;
     esac
     
@@ -150,7 +160,6 @@ REPO
     log_success "cloudflared 安装完成: $(cloudflared --version)"
 }
 
-# 创建智能连接脚本
 create_smart_script() {
     log_step "创建智能连接脚本..."
     
@@ -160,17 +169,23 @@ create_smart_script() {
 TOKEN="$1"
 LOG_FILE="/var/log/cloudflared.log"
 
+# 颜色输出（用于终端）
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo -e "$2"
 }
 
-# 如果没有传入 token，尝试从环境变量获取
 if [ -z "$TOKEN" ]; then
-    log "错误: 未提供 Token"
+    log "错误: 未提供 Token" "${RED}[ERROR]${NC} 未提供 Token"
     exit 1
 fi
 
-log "启动 Cloudflare Tunnel 智能连接"
+log "启动 Cloudflare Tunnel 智能连接" "${GREEN}[INFO]${NC} 启动 Cloudflare Tunnel..."
 
 # 检测 IPv6
 check_ipv6() {
@@ -185,19 +200,22 @@ check_ipv6() {
 
 # 尝试 IPv6
 if check_ipv6; then
-    log "IPv6 可用，尝试连接"
+    log "IPv6 可用，尝试连接" "${GREEN}[INFO]${NC} IPv6 可用，正在尝试连接..."
+    
     if timeout 30 cloudflared tunnel --edge-ip-version 6 --protocol http2 run --token "$TOKEN" 2>/dev/null; then
-        log "IPv6 连接成功"
+        log "IPv6 连接成功 ✓" "${GREEN}[✓]${NC} IPv6 连接成功！"
+        echo -e "${GREEN}[INFO]${NC} 当前使用: IPv6"
         exec cloudflared tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
     else
-        log "IPv6 连接失败，切换到 IPv4"
+        log "IPv6 连接失败，切换到 IPv4" "${YELLOW}[WARN]${NC} IPv6 连接失败，切换到 IPv4"
     fi
 else
-    log "IPv6 不可用"
+    log "IPv6 不可用" "${YELLOW}[WARN]${NC} IPv6 不可用"
 fi
 
 # 使用 IPv4
-log "使用 IPv4 连接"
+log "使用 IPv4 连接" "${GREEN}[INFO]${NC} 当前使用: IPv4"
+echo -e "${GREEN}[INFO]${NC} 使用 IPv4 连接"
 exec cloudflared tunnel --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
 SCRIPT
     
@@ -205,7 +223,6 @@ SCRIPT
     log_success "智能连接脚本创建完成"
 }
 
-# 创建 systemd 服务
 create_systemd_service() {
     log_step "创建 systemd 服务..."
     
@@ -220,7 +237,8 @@ Type=simple
 Restart=always
 RestartSec=10s
 ExecStart=/usr/local/bin/cloudflared-smart.sh ${TOKEN}
-KillMode=process
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -229,18 +247,38 @@ SERVICE
     log_success "systemd 服务创建完成"
 }
 
-# 启动服务
 start_service() {
     log_step "启动服务..."
     
+    show_progress "重新加载 systemd"
     systemctl daemon-reload
-    systemctl enable cloudflared.service
+    
+    show_progress "启用开机自启"
+    systemctl enable cloudflared.service > /dev/null 2>&1
+    
+    show_progress "启动 cloudflared"
     systemctl start cloudflared.service
     
-    sleep 3
+    sleep 5
 }
 
-# 检查服务状态
+test_connection() {
+    log_step "测试连接状态..."
+    echo ""
+    
+    # 等待连接建立
+    for i in {1..15}; do
+        if journalctl -u cloudflared.service -n 5 --no-pager 2>/dev/null | grep -q "Registered\|连接成功"; then
+            echo -e "  ${GREEN}✓ Tunnel 已成功注册${NC}"
+            return 0
+        fi
+        echo -ne "  ${CYAN}.${NC}"
+        sleep 2
+    done
+    echo ""
+    log_warn "Tunnel 注册中，请稍后查看日志"
+}
+
 check_service() {
     log_step "检查服务状态..."
     echo ""
@@ -248,7 +286,26 @@ check_service() {
     if systemctl is-active --quiet cloudflared.service; then
         log_success "服务运行中"
         echo ""
-        systemctl status cloudflared.service --no-pager -l | head -15
+        
+        # 显示当前使用的协议
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}当前连接状态:${NC}"
+        
+        # 查看最近的连接日志
+        if journalctl -u cloudflared.service -n 20 --no-pager 2>/dev/null | grep -q "IPv6"; then
+            echo -e "  ${GREEN}✓ 当前使用: IPv6${NC}"
+        elif journalctl -u cloudflared.service -n 20 --no-pager 2>/dev/null | grep -q "IPv4"; then
+            echo -e "  ${GREEN}✓ 当前使用: IPv4${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ 连接建立中...${NC}"
+        fi
+        
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        
+        # 显示服务状态摘要
+        systemctl status cloudflared.service --no-pager -l | head -12
+        
         return 0
     else
         log_error "服务未运行"
@@ -257,26 +314,26 @@ check_service() {
     fi
 }
 
-# 显示完成信息
 show_complete() {
     echo ""
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    安装完成！                                ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                    安装完成！                                ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     log_info "Cloudflare Tunnel 已安装并启动"
     log_info "开机自启: 已启用"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "常用管理命令:"
-    echo "  查看状态: sudo systemctl status cloudflared"
-    echo "  查看日志: sudo journalctl -u cloudflared -f"
-    echo "  重启服务: sudo systemctl restart cloudflared"
-    echo "  停止服务: sudo systemctl stop cloudflared"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}常用管理命令:${NC}"
+    echo -e "  ${YELLOW}查看状态:${NC} sudo systemctl status cloudflared"
+    echo -e "  ${YELLOW}查看日志:${NC} sudo journalctl -u cloudflared -f"
+    echo -e "  ${YELLOW}查看连接:${NC} sudo tail -f /var/log/cloudflared.log"
+    echo -e "  ${YELLOW}重启服务:${NC} sudo systemctl restart cloudflared"
+    echo -e "  ${YELLOW}停止服务:${NC} sudo systemctl stop cloudflared"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
 }
 
-# 卸载函数
 uninstall() {
     log_step "卸载 Cloudflare Tunnel..."
     
@@ -298,7 +355,27 @@ uninstall() {
     fi
 }
 
-# 主函数
+show_help() {
+    cat << EOF
+Cloudflare Tunnel 安装脚本 v${VERSION}
+
+用法:
+    curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
+
+选项:
+    --uninstall    卸载服务
+    -h, --help     显示帮助
+
+示例:
+    # 安装
+    curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "your-token"
+    
+    # 卸载
+    wget https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh
+    sudo bash install-cloudflared.sh --uninstall
+EOF
+}
+
 main() {
     case "$1" in
         --uninstall)
@@ -307,7 +384,7 @@ main() {
             exit 0
             ;;
         -h|--help)
-            echo "用法: curl ... | sudo bash -s -- 'YOUR_TOKEN'"
+            show_help
             exit 0
             ;;
     esac
@@ -315,8 +392,7 @@ main() {
     TOKEN="$1"
     if [[ -z "$TOKEN" ]]; then
         log_error "请提供 Cloudflare Token"
-        echo ""
-        echo "用法: curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- \"YOUR_TOKEN\""
+        show_help
         exit 1
     fi
     
@@ -328,13 +404,9 @@ main() {
     create_smart_script
     create_systemd_service
     start_service
-    
-    if check_service; then
-        show_complete
-    else
-        log_error "服务启动失败，请检查日志"
-        exit 1
-    fi
+    test_connection
+    check_service
+    show_complete
 }
 
 main "$@"
