@@ -92,17 +92,18 @@ sudo bash install-cloudflared.sh --uninstall
 6. 启动服务并验证状态
 7. 显示连接信息和常用命令
 ## 智能连接逻辑
-### 启动
-###   ↓
-### 检测 IPv6 支持
-###   ↓
-### IPv6 可用？ ──否──→ 使用 IPv4 连接
-###  ↓ 是
-### 尝试 IPv6 连接
-###   ↓
-### 连接成功？ ──否──→ 使用 IPv4 连接
-###   ↓ 是
-### 使用 IPv6 连接
+graph TD
+    A[🚀 启动] --> B{检测 IPv6 支持}
+    B -->|❌ 不可用| C[📡 使用 IPv4 连接]
+    B -->|✅ 可用| D[🔗 尝试 IPv6 连接]
+    D -->|❌ 连接失败| C
+    D -->|✅ 连接成功| E[🌐 使用 IPv6 连接]
+    
+    style A fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    style B fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    style C fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    style D fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    style E fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
 文件结构
 安装后会在系统中创建以下文件：
 
