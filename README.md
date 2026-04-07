@@ -62,3 +62,38 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
+
+## 使用示例
+
+# 基本安装（替换为您的实际 Token）
+curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "eyJhIjoi..."
+
+# 查看帮助
+curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | bash -s -- -h
+
+# 卸载服务（需要先下载脚本）
+wget https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh
+sudo bash install-cloudflared.sh --uninstall
+
+## 📝 详细说明
+# 安装流程
+# 脚本会自动执行以下步骤：
+1. 检测系统类型 (Ubuntu/Debian/CentOS/RHEL/Fedora)
+2. 清理旧服务 (停止、禁用、删除配置文件)
+3. 安装 cloudflared (自动选择包管理器或二进制下载)
+4. 创建智能连接脚本 (IPv6 优先，失败自动切换 IPv4)
+5. 创建 systemd 服务 (开机自启、自动重启)
+6. 启动服务并验证状态
+7. 显示连接信息和常用命令
+# 智能连接逻辑
+启动
+  ↓
+检测 IPv6 支持
+  ↓
+IPv6 可用？ ──否──→ 使用 IPv4 连接
+  ↓ 是
+尝试 IPv6 连接
+  ↓
+连接成功？ ──否──→ 使用 IPv4 连接
+  ↓ 是
+使用 IPv6 连接
