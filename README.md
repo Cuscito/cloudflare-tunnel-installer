@@ -92,17 +92,17 @@ sudo bash install-cloudflared.sh --uninstall
 6. 启动服务并验证状态
 7. 显示连接信息和常用命令
 ## 智能连接逻辑
-# 启动
-#   ↓
-# 检测 IPv6 支持
-#   ↓
-# IPv6 可用？ ──否──→ 使用 IPv4 连接
-#  ↓ 是
-# 尝试 IPv6 连接
-#   ↓
-# 连接成功？ ──否──→ 使用 IPv4 连接
-#   ↓ 是
-# 使用 IPv6 连接
+### 启动
+###   ↓
+### 检测 IPv6 支持
+###   ↓
+### IPv6 可用？ ──否──→ 使用 IPv4 连接
+###  ↓ 是
+### 尝试 IPv6 连接
+###   ↓
+### 连接成功？ ──否──→ 使用 IPv4 连接
+###   ↓ 是
+### 使用 IPv6 连接
 文件结构
 安装后会在系统中创建以下文件：
 
@@ -114,16 +114,26 @@ sudo bash install-cloudflared.sh --uninstall
 ## 🔧 管理命令
 服务管理
 # 查看服务状态
+```bash
 sudo systemctl status cloudflared
+```
 
 # 启动服务
+```bash
 sudo systemctl start cloudflared
+```
 
 # 停止服务
+```bash
 sudo systemctl stop cloudflared
+```
 
 # 重启服务
+```bash
 sudo systemctl restart cloudflared
+```
 
 # 查看是否开机自启
+```bash
 sudo systemctl is-enabled cloudflared
+```
