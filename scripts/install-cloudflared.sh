@@ -1,4 +1,3 @@
-cat > scripts/install-cloudflared.sh << 'EOF'
 #!/bin/bash
 
 ##############################################################################
@@ -10,10 +9,10 @@ cat > scripts/install-cloudflared.sh << 'EOF'
 #   3. 配置 systemd 服务，开机自启
 #   4. 实时显示安装进度和运行状态
 #
-# 支持系统：Ubuntu, Debian, CentOS, RHEL, Fedora, Rocky Linux, AlmaLinux
-# GitHub：https://github.com/Cuscito/cloudflare-tunnel-installer
-# 作者：Cuscito
-# 版本：2.0.0
+# 使用方法：
+#   1. 修改下面的 CLOUDFLARE_TOKEN 为您的 Token
+#   2. 保存为 install.sh
+#   3. sudo bash install.sh
 ##############################################################################
 
 set -e
@@ -33,11 +32,9 @@ VERSION="2.0.0"
 # 日志文件
 LOG_FILE="/var/log/cloudflared-install.log"
 
-# ==================== 配置区域 ====================
-# 请修改为您的 Cloudflare Tunnel Token
-# 获取方式：Cloudflare Zero Trust > Networks > Tunnels > 创建 Tunnel
-CLOUDFLARE_TOKEN=""
-# =================================================
+# ==================== 请修改为您的 Token ====================
+CLOUDFLARE_TOKEN="eyJhIjoiNDMzMGVmMDAwYzQ0NWZjMDg2ZTg2ODUyZjRkNzJlMDAiLCJ0IjoiNWZhNTk4Y2EtNjMyMy00YzE3LThmNGMtOGNkYWNhNWVjMDI4IiwicyI6IlpUSTBZamhpTW1JdE1qVmhZUzAwWVRaa0xUaGlOelV0WWpjMk5HTTVNemcxTXpGaiJ9"
+# ============================================================
 
 # 日志函数
 log() {
@@ -82,7 +79,6 @@ show_title() {
     log "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
     log "${MAGENTA}║                                                              ║${NC}"
     log "${MAGENTA}║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║${NC}"
-    log "${MAGENTA}║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║${NC}"
     log "${MAGENTA}║                                                              ║${NC}"
     log "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -102,7 +98,6 @@ check_token() {
         log_error "请先设置 Cloudflare Token"
         echo ""
         log_info "编辑脚本，修改 CLOUDFLARE_TOKEN 变量"
-        log_info "或使用命令行参数: --token \"your-token\""
         exit 1
     fi
 }
@@ -216,7 +211,7 @@ install_cloudflared() {
     case $PKG_MANAGER in
         apt)
             echo -n "  添加 GPG 密钥... "
-            curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo gpg --dearmor | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg > /dev/null
+            curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg > /dev/null
             echo -e "${GREEN}完成${NC}"
             
             echo -n "  添加软件源... "
@@ -274,16 +269,16 @@ REPO
 
 # 创建智能连接脚本
 create_smart_script() {
-    log_step "创建智能连接脚本..."
+    log_step "创建智能连接脚本（IPv6优先，失败自动切换IPv4）..."
     
-    sudo tee /usr/local/bin/cloudflared-smart.sh > /dev/null << 'SCRIPT'
+    sudo tee /usr/local/bin/cloudflared-smart.sh > /dev/null << SCRIPT
 #!/bin/bash
 
-TOKEN="'"${CLOUDFLARE_TOKEN}"'"
+TOKEN="${CLOUDFLARE_TOKEN}"
 LOG_FILE="/var/log/cloudflared.log"
 
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') - \$1" >> "\$LOG_FILE"
 }
 
 log "启动 Cloudflare Tunnel 智能连接"
@@ -306,9 +301,9 @@ check_ipv6() {
 # 尝试 IPv6
 if check_ipv6; then
     log "IPv6 可用，尝试连接"
-    if timeout 30 cloudflared tunnel --edge-ip-version 6 --protocol http2 run --token $TOKEN 2>/dev/null; then
+    if timeout 30 cloudflared tunnel --edge-ip-version 6 --protocol http2 run --token \$TOKEN 2>/dev/null; then
         log "IPv6 连接成功"
-        exec cloudflared tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token $TOKEN
+        exec cloudflared tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token \$TOKEN
     else
         log "IPv6 连接失败，切换到 IPv4"
     fi
@@ -318,7 +313,7 @@ fi
 
 # 使用 IPv4
 log "使用 IPv4 连接"
-exec cloudflared tunnel --protocol http2 --retries 5 --no-autoupdate run --token $TOKEN
+exec cloudflared tunnel --protocol http2 --retries 5 --no-autoupdate run --token \$TOKEN
 SCRIPT
     
     sudo chmod +x /usr/local/bin/cloudflared-smart.sh
@@ -446,31 +441,43 @@ uninstall() {
     fi
 }
 
+# 帮助信息
+show_help() {
+    cat << EOF
+Cloudflare Tunnel 安装脚本 v${VERSION}
+
+用法: sudo $0 [选项]
+
+选项:
+    --uninstall            卸载服务
+    -h, --help             显示帮助
+
+示例:
+    sudo $0                # 安装服务
+    sudo $0 --uninstall    # 卸载服务
+
+说明:
+    安装前请在脚本中设置 CLOUDFLARE_TOKEN 变量
+    脚本会自动检测并卸载旧服务
+    安装后自动启动并设置开机自启
+    智能连接: IPv6 优先，失败自动切换 IPv4
+EOF
+}
+
 # 主函数
 main() {
     # 解析命令行参数
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -t|--token)
-                CLOUDFLARE_TOKEN="$2"
-                shift 2
-                ;;
-            --uninstall)
-                check_root
-                uninstall
-                exit 0
-                ;;
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            *)
-                log_error "未知参数: $1"
-                show_help
-                exit 1
-                ;;
-        esac
-    done
+    case "$1" in
+        --uninstall)
+            check_root
+            uninstall
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+    esac
     
     check_root
     show_title
@@ -490,33 +497,5 @@ main() {
     fi
 }
 
-# 帮助信息
-show_help() {
-    cat << EOF
-Cloudflare Tunnel 安装脚本 v${VERSION}
-
-用法: sudo $0 [选项]
-
-选项:
-    -t, --token TOKEN      设置 Cloudflare Tunnel Token
-    --uninstall            卸载服务
-    -h, --help             显示帮助
-
-示例:
-    sudo $0 -t "your-token-here"
-    sudo $0 --uninstall
-
-说明:
-    脚本会自动检测并卸载旧服务
-    安装后自动启动并设置开机自启
-    智能连接: IPv6 优先，失败自动切换 IPv4
-
-GitHub: https://github.com/Cuscito/cloudflare-tunnel-installer
-EOF
-}
-
 # 运行
 main "$@"
-EOF
-
-chmod +x scripts/install-cloudflared.sh
