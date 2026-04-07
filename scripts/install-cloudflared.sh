@@ -13,6 +13,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
 #
 # GitHub: https://github.com/Cuscito/cloudflare-tunnel-installer
+# Version: 2.4.0
 ##############################################################################
 
 set -e
@@ -26,7 +27,7 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m'
 
-VERSION="2.3.0"
+VERSION="2.4.0"
 
 # 进度条函数
 show_progress() {
@@ -34,7 +35,7 @@ show_progress() {
     echo -ne "${CYAN}  ${msg}${NC} "
     for i in {1..3}; do
         echo -ne "."
-        sleep 0.3
+        sleep 0.2
     done
     echo -e " ${GREEN}✓${NC}"
 }
@@ -113,7 +114,8 @@ install_cloudflared() {
     log_step "安装 cloudflared..."
     
     if command -v cloudflared &> /dev/null; then
-        log_info "cloudflared 已安装: $(cloudflared --version)"
+        local current_version=$(cloudflared --version 2>/dev/null | head -1)
+        log_info "cloudflared 已安装: $current_version"
         return
     fi
     
@@ -169,23 +171,23 @@ create_smart_script() {
 TOKEN="$1"
 LOG_FILE="/var/log/cloudflared.log"
 
-# 颜色输出（用于终端）
+# 颜色输出
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-    echo -e "$2"
 }
 
 if [ -z "$TOKEN" ]; then
-    log "错误: 未提供 Token" "${RED}[ERROR]${NC} 未提供 Token"
+    echo -e "${RED}[ERROR]${NC} 未提供 Token"
     exit 1
 fi
 
-log "启动 Cloudflare Tunnel 智能连接" "${GREEN}[INFO]${NC} 启动 Cloudflare Tunnel..."
+echo -e "${GREEN}[INFO]${NC} 启动 Cloudflare Tunnel 智能连接..."
 
 # 检测 IPv6
 check_ipv6() {
@@ -198,24 +200,36 @@ check_ipv6() {
     return 0
 }
 
+# 获取连接的边缘节点信息
+get_edge_info() {
+    local log_line=$(journalctl -u cloudflared -n 20 2>/dev/null | grep -oP 'connIndex=\d+ ip=\S+' | head -1)
+    if [ -n "$log_line" ]; then
+        echo "$log_line"
+    fi
+}
+
 # 尝试 IPv6
 if check_ipv6; then
-    log "IPv6 可用，尝试连接" "${GREEN}[INFO]${NC} IPv6 可用，正在尝试连接..."
+    echo -e "${GREEN}[INFO]${NC} IPv6 可用，正在尝试连接..."
+    log "IPv6 可用，尝试连接"
     
     if timeout 30 cloudflared tunnel --edge-ip-version 6 --protocol http2 run --token "$TOKEN" 2>/dev/null; then
-        log "IPv6 连接成功 ✓" "${GREEN}[✓]${NC} IPv6 连接成功！"
-        echo -e "${GREEN}[INFO]${NC} 当前使用: IPv6"
+        log "IPv6 连接成功"
+        echo -e "${GREEN}[✓]${NC} IPv6 连接成功！"
+        echo -e "${CYAN}[INFO]${NC} 当前使用: IPv6"
         exec cloudflared tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
     else
-        log "IPv6 连接失败，切换到 IPv4" "${YELLOW}[WARN]${NC} IPv6 连接失败，切换到 IPv4"
+        log "IPv6 连接失败，切换到 IPv4"
+        echo -e "${YELLOW}[WARN]${NC} IPv6 连接失败，切换到 IPv4"
     fi
 else
-    log "IPv6 不可用" "${YELLOW}[WARN]${NC} IPv6 不可用"
+    log "IPv6 不可用"
+    echo -e "${YELLOW}[WARN]${NC} IPv6 不可用"
 fi
 
 # 使用 IPv4
-log "使用 IPv4 连接" "${GREEN}[INFO]${NC} 当前使用: IPv4"
-echo -e "${GREEN}[INFO]${NC} 使用 IPv4 连接"
+log "使用 IPv4 连接"
+echo -e "${GREEN}[INFO]${NC} 当前使用: IPv4"
 exec cloudflared tunnel --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
 SCRIPT
     
@@ -267,13 +281,16 @@ test_connection() {
     echo ""
     
     # 等待连接建立
-    for i in {1..15}; do
-        if journalctl -u cloudflared.service -n 5 --no-pager 2>/dev/null | grep -q "Registered\|连接成功"; then
+    local max_wait=30
+    local waited=0
+    while [ $waited -lt $max_wait ]; do
+        if journalctl -u cloudflared.service -n 10 --no-pager 2>/dev/null | grep -q "Registered\|连接成功\|Initial protocol"; then
             echo -e "  ${GREEN}✓ Tunnel 已成功注册${NC}"
             return 0
         fi
         echo -ne "  ${CYAN}.${NC}"
         sleep 2
+        waited=$((waited + 2))
     done
     echo ""
     log_warn "Tunnel 注册中，请稍后查看日志"
@@ -289,15 +306,21 @@ check_service() {
         
         # 显示当前使用的协议
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}当前连接状态:${NC}"
+        echo -e "${GREEN}📡 当前连接状态:${NC}"
         
-        # 查看最近的连接日志
-        if journalctl -u cloudflared.service -n 20 --no-pager 2>/dev/null | grep -q "IPv6"; then
+        # 查看最近的连接日志确定使用的协议
+        if journalctl -u cloudflared.service -n 30 --no-pager 2>/dev/null | grep -q "IPv6 连接成功\|IPv6.*成功"; then
             echo -e "  ${GREEN}✓ 当前使用: IPv6${NC}"
-        elif journalctl -u cloudflared.service -n 20 --no-pager 2>/dev/null | grep -q "IPv4"; then
+        elif journalctl -u cloudflared.service -n 30 --no-pager 2>/dev/null | grep -q "IPv4"; then
             echo -e "  ${GREEN}✓ 当前使用: IPv4${NC}"
         else
             echo -e "  ${YELLOW}⚠ 连接建立中...${NC}"
+        fi
+        
+        # 显示 Cloudflare 边缘节点信息
+        local edge_info=$(journalctl -u cloudflared.service -n 50 --no-pager 2>/dev/null | grep -oP 'connIndex=\d+ ip=\S+' | head -1)
+        if [ -n "$edge_info" ]; then
+            echo -e "  ${CYAN}📍 边缘节点: ${edge_info}${NC}"
         fi
         
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -324,7 +347,7 @@ show_complete() {
     log_info "开机自启: 已启用"
     echo ""
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}常用管理命令:${NC}"
+    echo -e "${GREEN}📋 常用管理命令:${NC}"
     echo -e "  ${YELLOW}查看状态:${NC} sudo systemctl status cloudflared"
     echo -e "  ${YELLOW}查看日志:${NC} sudo journalctl -u cloudflared -f"
     echo -e "  ${YELLOW}查看连接:${NC} sudo tail -f /var/log/cloudflared.log"
