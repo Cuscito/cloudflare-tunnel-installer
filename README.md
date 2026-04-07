@@ -92,18 +92,33 @@ sudo bash install-cloudflared.sh --uninstall
 6. 启动服务并验证状态
 7. 显示连接信息和常用命令
 ## 智能连接逻辑
-graph TD
-    A[🚀 启动] --> B{检测 IPv6 支持}
-    B -->|❌ 不可用| C[📡 使用 IPv4 连接]
-    B -->|✅ 可用| D[🔗 尝试 IPv6 连接]
-    D -->|❌ 连接失败| C
-    D -->|✅ 连接成功| E[🌐 使用 IPv6 连接]
+### 🔄 智能连接流程图
+
+```mermaid
+flowchart TD
+    START([🚀 启动服务]) --> CHECK{检测 IPv6 支持}
     
-    style A fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
-    style B fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
-    style C fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
-    style D fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
-    style E fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    CHECK -->|✅ IPv6 可用| TRY_IPV6[🔗 尝试 IPv6 连接]
+    CHECK -->|❌ IPv6 不可用| USE_IPV4[📡 使用 IPv4 连接]
+    
+    TRY_IPV6 --> SUCCESS{连接成功？}
+    SUCCESS -->|✅ 是| IPV6_SUCCESS[🌐 使用 IPv6 连接]
+    SUCCESS -->|❌ 否| USE_IPV4
+    
+    START -.-> |启动| CHECK
+    IPV6_SUCCESS -.-> |运行中| RUNNING
+    USE_IPV4 -.-> |运行中| RUNNING
+    
+    RUNNING([✅ 隧道运行中])
+    
+    style START fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    style CHECK fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    style TRY_IPV6 fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    style SUCCESS fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    style IPV6_SUCCESS fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    style USE_IPV4 fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    style RUNNING fill:#4CAF50,stroke:#333,stroke-width:3px,color:#fff
+```
 文件结构
 安装后会在系统中创建以下文件：
 
