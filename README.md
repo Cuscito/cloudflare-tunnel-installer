@@ -66,14 +66,20 @@ curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer
 ## 使用示例
 
 # 基本安装（替换为您的实际 Token）
-curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "eyJhIjoi..."
+```bash
+curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "贴换为您的TOKEN"
+```
 
 # 查看帮助
+```bash
 curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | bash -s -- -h
+```
 
 # 卸载服务（需要先下载脚本）
+```bash
 wget https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh
 sudo bash install-cloudflared.sh --uninstall
+```
 
 ## 📝 详细说明
 # 安装流程
