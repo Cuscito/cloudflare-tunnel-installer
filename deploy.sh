@@ -1,4 +1,3 @@
-cat > deploy.sh << 'EOF'
 #!/bin/bash
 # VLESS + Cloudflare Tunnel 一键安装脚本
 
@@ -407,9 +406,3 @@ main() {
 
 main
 EOF
-
-# 给脚本添加执行权限
-chmod +x deploy.sh
-
-# 运行脚本
-bash deploy.sh
