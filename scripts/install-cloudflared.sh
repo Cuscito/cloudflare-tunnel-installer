@@ -10,6 +10,8 @@
 #
 # 使用方法：
 #   curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- "YOUR_TOKEN"
+#
+# GitHub: https://github.com/Cuscito/cloudflare-tunnel-installer
 ##############################################################################
 
 set -e
@@ -21,19 +23,19 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-VERSION="2.2.0"
-LOG_FILE="/var/log/cloudflared-install.log"
+VERSION="2.3.0"
 
-log_info() { echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$LOG_FILE"; }
-log_step() { echo -e "${BLUE}[STEP]${NC} $1" | tee -a "$LOG_FILE"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1" | tee -a "$LOG_FILE"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 show_title() {
     clear
     echo ""
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║     Cloudflare Tunnel 一键安装脚本 v${VERSION}                    ║"
+    echo "║     https://github.com/Cuscito/cloudflare-tunnel-installer  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
 }
@@ -49,8 +51,7 @@ detect_os() {
     log_step "检测系统类型..."
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
-        OS=$ID
-        case $OS in
+        case $ID in
             ubuntu|debian)
                 PKG_MANAGER="apt"
                 log_info "系统: $NAME (Debian系列)"
@@ -68,14 +69,35 @@ detect_os() {
     fi
 }
 
+# 清理旧服务
+clean_old_service() {
+    log_step "清理旧服务..."
+    
+    if systemctl is-active --quiet cloudflared.service 2>/dev/null; then
+        systemctl stop cloudflared.service
+        echo "  已停止服务"
+    fi
+    
+    if systemctl is-enabled --quiet cloudflared.service 2>/dev/null; then
+        systemctl disable cloudflared.service
+        echo "  已禁用服务"
+    fi
+    
+    rm -f /etc/systemd/system/cloudflared.service
+    rm -f /usr/local/bin/cloudflared-smart.sh
+    systemctl daemon-reload
+    
+    log_success "清理完成"
+}
+
 # 安装 cloudflared
 install_cloudflared() {
     log_step "安装 cloudflared..."
     
-    # 删除可能损坏的安装
+    # 检查是否已安装
     if command -v cloudflared &> /dev/null; then
-        log_info "删除旧版本..."
-        rm -f $(which cloudflared)
+        log_info "cloudflared 已安装: $(cloudflared --version)"
+        return
     fi
     
     case $PKG_MANAGER in
@@ -93,7 +115,7 @@ install_cloudflared() {
             echo -e "${GREEN}完成${NC}"
             
             echo -n "  安装 cloudflared... "
-            apt-get install -y cloudflared
+            apt-get install -y cloudflared > /dev/null 2>&1
             echo -e "${GREEN}完成${NC}"
             ;;
         yum|dnf)
@@ -104,13 +126,12 @@ name=Cloudflare cloudflared
 baseurl=https://pkg.cloudflare.com/cloudflared/el/7/\$basearch
 enabled=1
 gpgcheck=1
-repo_gpgcheck=0
 gpgkey=https://pkg.cloudflare.com/cloudflare-public-v2.gpg
 REPO
             echo -e "${GREEN}完成${NC}"
             
             echo -n "  安装 cloudflared... "
-            $PKG_INSTALL cloudflared
+            $PKG_INSTALL cloudflared > /dev/null 2>&1
             echo -e "${GREEN}完成${NC}"
             ;;
         *)
@@ -121,62 +142,53 @@ REPO
             ;;
     esac
     
-    # 验证安装
-    if command -v cloudflared &> /dev/null; then
-        log_success "cloudflared 安装完成: $(cloudflared --version)"
-    elif [ -f /usr/local/bin/cloudflared ]; then
-        log_success "cloudflared 安装完成: $(/usr/local/bin/cloudflared --version)"
-        # 创建软链接
+    # 确保命令可用
+    if ! command -v cloudflared &> /dev/null && [ -f /usr/local/bin/cloudflared ]; then
         ln -sf /usr/local/bin/cloudflared /usr/bin/cloudflared
-    elif [ -f /usr/bin/cloudflared ]; then
-        log_success "cloudflared 安装完成: $(/usr/bin/cloudflared --version)"
-    else
-        log_error "cloudflared 安装失败"
-        exit 1
     fi
+    
+    log_success "cloudflared 安装完成: $(cloudflared --version)"
 }
 
 # 创建智能连接脚本
 create_smart_script() {
     log_step "创建智能连接脚本..."
     
-    # 获取 cloudflared 路径
-    CLOUDFLARED_PATH=$(which cloudflared 2>/dev/null || echo "/usr/local/bin/cloudflared")
-    
     cat > /usr/local/bin/cloudflared-smart.sh << 'SCRIPT'
 #!/bin/bash
 
-TOKEN="'"${TOKEN}"'"
-CLOUDFLARED_PATH="'"${CLOUDFLARED_PATH}"'"
+TOKEN="$1"
 LOG_FILE="/var/log/cloudflared.log"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
-log "启动 Cloudflare Tunnel"
+# 如果没有传入 token，尝试从环境变量获取
+if [ -z "$TOKEN" ]; then
+    log "错误: 未提供 Token"
+    exit 1
+fi
+
+log "启动 Cloudflare Tunnel 智能连接"
 
 # 检测 IPv6
 check_ipv6() {
     if [ ! -f /proc/net/if_inet6 ]; then
         return 1
     fi
-    
-    # 尝试 ping IPv6
-    if command -v ping6 &> /dev/null; then
-        ping6 -c 1 -W 2 2606:4700::1111 >/dev/null 2>&1
-    else
-        ping -6 -c 1 -W 2 2606:4700::1111 >/dev/null 2>&1
+    if ! ping6 -c 1 -W 2 2606:4700::1111 >/dev/null 2>&1; then
+        return 1
     fi
-    return $?
+    return 0
 }
 
 # 尝试 IPv6
 if check_ipv6; then
     log "IPv6 可用，尝试连接"
-    if timeout 20 $CLOUDFLARED_PATH tunnel --edge-ip-version 6 --protocol http2 run --token $TOKEN 2>/dev/null; then
+    if timeout 30 cloudflared tunnel --edge-ip-version 6 --protocol http2 run --token "$TOKEN" 2>/dev/null; then
         log "IPv6 连接成功"
-        exec $CLOUDFLARED_PATH tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token $TOKEN
+        exec cloudflared tunnel --edge-ip-version 6 --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
     else
         log "IPv6 连接失败，切换到 IPv4"
     fi
@@ -186,7 +198,7 @@ fi
 
 # 使用 IPv4
 log "使用 IPv4 连接"
-exec $CLOUDFLARED_PATH tunnel --protocol http2 --retries 5 --no-autoupdate run --token $TOKEN
+exec cloudflared tunnel --protocol http2 --retries 5 --no-autoupdate run --token "$TOKEN"
 SCRIPT
     
     chmod +x /usr/local/bin/cloudflared-smart.sh
@@ -197,7 +209,7 @@ SCRIPT
 create_systemd_service() {
     log_step "创建 systemd 服务..."
     
-    cat > /etc/systemd/system/cloudflared.service << 'SERVICE'
+    cat > /etc/systemd/system/cloudflared.service << SERVICE
 [Unit]
 Description=Cloudflare Tunnel
 After=network-online.target
@@ -207,7 +219,7 @@ Wants=network-online.target
 Type=simple
 Restart=always
 RestartSec=10s
-ExecStart=/usr/local/bin/cloudflared-smart.sh
+ExecStart=/usr/local/bin/cloudflared-smart.sh ${TOKEN}
 KillMode=process
 
 [Install]
@@ -260,6 +272,7 @@ show_complete() {
     echo "  查看状态: sudo systemctl status cloudflared"
     echo "  查看日志: sudo journalctl -u cloudflared -f"
     echo "  重启服务: sudo systemctl restart cloudflared"
+    echo "  停止服务: sudo systemctl stop cloudflared"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
@@ -271,7 +284,6 @@ uninstall() {
     systemctl disable cloudflared.service 2>/dev/null
     rm -f /etc/systemd/system/cloudflared.service
     rm -f /usr/local/bin/cloudflared-smart.sh
-    rm -f /var/log/cloudflared.log
     systemctl daemon-reload
     
     log_success "卸载完成"
@@ -303,12 +315,15 @@ main() {
     TOKEN="$1"
     if [[ -z "$TOKEN" ]]; then
         log_error "请提供 Cloudflare Token"
+        echo ""
+        echo "用法: curl -fsSL https://raw.githubusercontent.com/Cuscito/cloudflare-tunnel-installer/main/scripts/install-cloudflared.sh | sudo bash -s -- \"YOUR_TOKEN\""
         exit 1
     fi
     
     check_root
     show_title
     detect_os
+    clean_old_service
     install_cloudflared
     create_smart_script
     create_systemd_service
@@ -317,7 +332,7 @@ main() {
     if check_service; then
         show_complete
     else
-        log_error "服务启动失败"
+        log_error "服务启动失败，请检查日志"
         exit 1
     fi
 }
