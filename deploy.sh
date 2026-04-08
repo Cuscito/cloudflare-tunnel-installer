@@ -1,20 +1,28 @@
 #!/bin/bash
-# Cloudflare Tunnel + VLESS + WebSocket 易用性增强版
+# =============================================================================
+# Cloudflare Tunnel + VLESS + WebSocket 一键部署脚本
+# 
+# 功能：自动部署一个基于 Cloudflare Tunnel 的 VLESS 节点
+# 用法：curl -fsSL https://你的域名/deploy.sh | bash
+#      或下载后执行 chmod +x deploy.sh && ./deploy.sh
+#
+# 作者：Your Name
+# 仓库：https://github.com/你的用户名/仓库名
+# =============================================================================
+
 set -e
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
 error_exit() { echo -e "${RED}✗ 错误：$1${NC}" >&2; exit 1; }
 show_ok() { echo -e "${GREEN}✓ $1${NC}"; }
 show_info() { echo -e "${BLUE}→ $1${NC}"; }
 show_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
-
-# 非交互模式：如果环境变量全部设置，则跳过所有询问
-if [ -n "$CF_API_TOKEN" ] || [ -n "$CF_EMAIL" ] && [ -n "$CF_API_KEY" ]; then
-    NONINTERACTIVE=true
-    show_info "检测到环境变量，启用非交互模式"
-else
-    NONINTERACTIVE=false
-fi
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN} Cloudflare Tunnel + VLESS 易用版${NC}"
@@ -31,69 +39,47 @@ if [ -d ~/.cloudflared ] || [ -d /usr/local/etc/xray ]; then
 fi
 
 # ---------- 认证方式 ----------
-if [ "$NONINTERACTIVE" = false ]; then
-    echo -e "${YELLOW}选择 Cloudflare 认证方式：${NC}"
-    echo "1) API Token (推荐)"
-    echo "2) Global API Key"
-    read -p "输入选项 (1/2) [默认 1]: " AUTH_METHOD
-    AUTH_METHOD=${AUTH_METHOD:-1}
-else
-    AUTH_METHOD="1"
-fi
+echo -e "${YELLOW}选择 Cloudflare 认证方式：${NC}"
+echo "1) API Token (推荐)"
+echo "2) Global API Key"
+read -p "输入选项 (1/2) [默认 1]: " AUTH_METHOD
+AUTH_METHOD=${AUTH_METHOD:-1}
 
 if [ "$AUTH_METHOD" = "1" ]; then
-    if [ -z "$CF_API_TOKEN" ]; then
-        read -p "API Token: " API_TOKEN
-    else
-        API_TOKEN="$CF_API_TOKEN"
-        show_info "使用环境变量 CF_API_TOKEN"
-    fi
+    read -p "API Token: " API_TOKEN
     export CF_API_TOKEN="$API_TOKEN"
 else
-    if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
-        read -p "账户邮箱: " CF_EMAIL
-        read -p "Global API Key: " CF_API_KEY
-    else
-        show_info "使用环境变量 CF_EMAIL 和 CF_API_KEY"
-    fi
+    read -p "账户邮箱: " CF_EMAIL
+    read -p "Global API Key: " CF_API_KEY
     export CF_EMAIL CF_API_KEY
 fi
 
 # ---------- 基本配置（带智能默认值）----------
-if [ "$NONINTERACTIVE" = false ]; then
-    read -p "隧道名称 (自定义) [默认 tunnel-$(date +%s)]: " TUNNEL_NAME
-    TUNNEL_NAME=${TUNNEL_NAME:-tunnel-$(date +%s)}
-    read -p "完整子域名 (如 proxy.example.com): " TUNNEL_HOST
-    read -p "WebSocket 端口 [默认 8080]: " WS_PORT
-    WS_PORT=${WS_PORT:-8080}
-    read -p "WebSocket 路径 [默认 /ws]: " WS_PATH
-    WS_PATH=${WS_PATH:-/ws}
-    [[ $WS_PATH != /* ]] && WS_PATH="/$WS_PATH"
-    DEFAULT_UUID=$(cat /proc/sys/kernel/random/uuid)
-    read -p "VLESS UUID [回车随机生成]: " UUID
-    UUID=${UUID:-$DEFAULT_UUID}
-else
-    TUNNEL_NAME=${TUNNEL_NAME:-tunnel-$(date +%s)}
-    TUNNEL_HOST=${TUNNEL_HOST:?请设置环境变量 TUNNEL_HOST}
-    WS_PORT=${WS_PORT:-8080}
-    WS_PATH=${WS_PATH:-/ws}
-    UUID=${UUID:-$(cat /proc/sys/kernel/random/uuid)}
-fi
+read -p "隧道名称 (自定义) [默认 tunnel-$(date +%s)]: " TUNNEL_NAME
+TUNNEL_NAME=${TUNNEL_NAME:-tunnel-$(date +%s)}
+read -p "完整子域名 (如 proxy.example.com): " TUNNEL_HOST
+[ -z "$TUNNEL_HOST" ] && error_exit "子域名不能为空"
+read -p "WebSocket 端口 [默认 8080]: " WS_PORT
+WS_PORT=${WS_PORT:-8080}
+read -p "WebSocket 路径 [默认 /ws]: " WS_PATH
+WS_PATH=${WS_PATH:-/ws}
+[[ $WS_PATH != /* ]] && WS_PATH="/$WS_PATH"
+DEFAULT_UUID=$(cat /proc/sys/kernel/random/uuid)
+read -p "VLESS UUID [回车随机生成]: " UUID
+UUID=${UUID:-$DEFAULT_UUID}
 
 FAKE_HOST="$TUNNEL_HOST"
 
-if [ "$NONINTERACTIVE" = false ]; then
-    echo ""
-    echo -e "${YELLOW}确认配置：${NC}"
-    echo "隧道名称   : $TUNNEL_NAME"
-    echo "子域名     : $TUNNEL_HOST"
-    echo "WS 端口    : $WS_PORT"
-    echo "WS 路径    : $WS_PATH"
-    echo "UUID       : $UUID"
-    echo "伪装域名   : $FAKE_HOST (自动)"
-    read -p "确认无误？(y/n) " -n 1 -r; echo
-    [[ ! $REPLY =~ ^[Yy]$ ]] && error_exit "已取消"
-fi
+echo ""
+echo -e "${YELLOW}确认配置：${NC}"
+echo "隧道名称   : $TUNNEL_NAME"
+echo "子域名     : $TUNNEL_HOST"
+echo "WS 端口    : $WS_PORT"
+echo "WS 路径    : $WS_PATH"
+echo "UUID       : $UUID"
+echo "伪装域名   : $FAKE_HOST (自动)"
+read -p "确认无误？(y/n) " -n 1 -r; echo
+[[ ! $REPLY =~ ^[Yy]$ ]] && error_exit "已取消"
 
 # ---------- 1. 清理 ----------
 echo -e "\n${YELLOW}[1/9] 清理冲突服务与残留...${NC}"
@@ -342,5 +328,3 @@ echo "  2. Cloudflare SSL/TLS 设置为 '完全' 或 '完全（严格）'"
 echo "  3. 客户端配置的地址、UUID、路径必须与上述输出完全一致"
 echo "  4. 如果连接失败，尝试在客户端开启 '允许不安全' 进行测试"
 echo ""
-
-main "$@"
